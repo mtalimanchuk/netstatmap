@@ -25,7 +25,7 @@ def _normalize_df_darwin(df):
     return df
 
 
-COLORS = ['blue', 'orange', 'darkblue', 'red', 'pink', 'green', 'beige', 'purple', 'lightblue', 'darkgreen', 'cadetblue', 'white', 'gray', 'darkred', 'lightgray', 'lightgreen', 'black']
+COLORS = ['blue', 'orange', 'darkblue', 'red', 'pink', 'green', 'purple', 'lightblue', 'darkgreen', 'cadetblue', 'white', 'gray', 'darkred', 'lightgray', 'lightgreen', 'black']
 FLAVORED_COMMANDS = {
     "Linux": (
         ["netstat", "-tupn"],
