@@ -42,7 +42,7 @@ FLAVORED_COMMANDS = {
         ['COMMAND', 'PID', 'USER', 'FD', 'TYPE', 'DEVICE', 'SIZE/OFF', 'NODE', 'NAME'],
         _normalize_df_darwin,
     ),
-    # MacOS command needs testing, but should be the same as on Linux
+    # MacOS command needs testing
     # more details here https://github.com/easybuilders/easybuild/wiki/OS_flavor_name_version
 }
 
@@ -73,7 +73,6 @@ def get_my_location():
 def get_foreign_locations(ips):
     url = "http://ip-api.com/batch"
     r = requests.post(url, json=list(ips))
-    # data = [ip_data for ip_data in r.json() if ip_data.get("status") == "success"]
     return r.json()
 
 
