@@ -8,7 +8,7 @@ import pandas as pd
 import requests
 import folium
 
-COLORS = ['darkblue', 'white', 'orange', 'green', 'beige', 'darkred', 'gray', 'red', 'lightgray', 'lightgreen', 'lightred', 'lightblue', 'darkgreen', 'black', 'blue', 'purple', 'cadetblue']
+COLORS = ['blue', 'orange', 'darkblue', 'red', 'pink', 'green', 'beige', 'purple', 'lightblue', 'darkgreen', 'cadetblue', 'white', 'gray', 'darkred', 'lightgray', 'lightgreen', 'black']
 FLAVORED_COMMANDS = {
     "Linux": (
         ["netstat", "-tupn"],
@@ -52,28 +52,10 @@ def get_foreign_locations(ips):
     return r.json()
 
 
-if __name__ == "__main__":
-    connections_df = get_netstat_df()
-    try:
-        connections_df[["PID", "Name"]] = connections_df["PID/Name"].str.split("/", expand=True)
-    except ValueError:
-        pass
-    connections_df[["LocalAddress", "LocalPort"]] = connections_df["LocalAddress"].str.rsplit(":", n=1, expand=True)
-    connections_df[["ForeignAddress", "ForeignPort"]] = connections_df["ForeignAddress"].str.rsplit(":", n=1, expand=True)
-    connections_df = connections_df.drop(connections_df[connections_df["ForeignAddress"].str.contains(r"^(0|127|10)\..*?\..*?\..*?.*|\*|\[::\]")].index).reset_index()
+def draw_map(my_lat, my_lon, markers_df):
+    world = folium.Map(location=[my_lat, my_lon], zoom_start=2)
 
-    my_lat, my_lon = get_my_location()
-    geodata = get_foreign_locations(connections_df["ForeignAddress"])
-    geodata_df = pd.DataFrame(geodata)
-
-    markers_df = pd.concat([connections_df, geodata_df], axis=1, sort=False).dropna(subset=["lat", "lon"])
-
-    markers_df["desc"] = markers_df["State"] + " " + markers_df['PID/Name'] + " " + markers_df['ForeignAddress']
-    unique_markers_df = markers_df.groupby(["lat", "lon", "city", "countryCode"]).aggregate({"desc": "<br>".join}).reset_index()
-
-    world = folium.Map(location=[20, 0], zoom_start=2)
-
-    for m in unique_markers_df.itertuples():
+    for m in markers_df.itertuples():
         feature_group = folium.FeatureGroup(f"{m.city} [{m.countryCode}]")
 
         randcolor = random.choice(COLORS)
@@ -88,4 +70,21 @@ if __name__ == "__main__":
         feature_group.add_to(world)
 
     folium.LayerControl('topleft', collapsed=False).add_to(world)
+    return world
+
+
+if __name__ == "__main__":
+    connections_df = get_netstat_df()
+    connections_df[["LocalAddress", "LocalPort"]] = connections_df["LocalAddress"].str.rsplit(":", n=1, expand=True)
+    connections_df[["ForeignAddress", "ForeignPort"]] = connections_df["ForeignAddress"].str.rsplit(":", n=1, expand=True)
+    connections_df = connections_df.drop(connections_df[connections_df["ForeignAddress"].str.contains(r"^(0|127|10)\..*?\..*?\..*?.*|\*|\[::\]")].index).reset_index()
+
+    my_lat, my_lon = get_my_location()
+    geodata = get_foreign_locations(connections_df["ForeignAddress"])
+    geodata_df = pd.DataFrame(geodata)
+    markers_df = pd.concat([connections_df, geodata_df], axis=1, sort=False).dropna(subset=["lat", "lon"])
+    markers_df["desc"] = markers_df["State"] + " " + markers_df['PID/Name'] + " " + markers_df['ForeignAddress']
+    unique_markers_df = markers_df.groupby(["lat", "lon", "city", "countryCode"]).aggregate({"desc": "<br>".join}).reset_index()
+
+    world = draw_map(my_lat, my_lon, unique_markers_df)
     world.save("world.html")
