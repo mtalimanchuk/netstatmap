@@ -122,7 +122,7 @@ def draw_map(my_lat, my_lon, markers_df):
 
 def parse_args():
     parser = ArgumentParser()
-    parser.add_argument("path", help="path to save the map, 'world.html' by default", type=str, default="world.html")
+    parser.add_argument("path", help="path to save the map, 'world.html' by default", type=str, nargs='?', default="world.html")
     parser.add_argument("-o", "--open", help="open the map in your default browser once finished", action="store_true")
 
     args = parser.parse_args()
