@@ -4,6 +4,8 @@ import locale
 import platform
 import random
 import subprocess
+import warnings
+warnings.simplefilter(action='ignore', category=UserWarning)
 
 import pandas as pd
 import requests
@@ -63,7 +65,7 @@ class NetStat:
 
     @staticmethod
     def normalize_windows(df):
-        return df[NetStat.NORMALIZED_OUTPUT_COLUMNS]
+        return df.loc[:, NetStat.NORMALIZED_OUTPUT_COLUMNS]
 
     @staticmethod
     def normalize_darwin(df):
@@ -78,7 +80,7 @@ class NetStat:
         df[["LocalAddress", "LocalPort"]] = df["LocalAddress"].str.rsplit(":", n=1, expand=True)
         df[["ForeignAddress", "ForeignPort"]] = df["ForeignAddress"].str.rsplit(":", n=1, expand=True)
         df = df.drop(df[df["ForeignAddress"].str.contains(r"^(0|127|10)\..*?\..*?\..*?.*|\*|\[::\]")].index).reset_index()
-        return df[NetStat.FEATURES]
+        return df.loc[:, NetStat.FEATURES]
 
     @property
     def df(self):
@@ -131,6 +133,7 @@ def parse_args():
     parser = ArgumentParser()
     parser.add_argument("path", help="path to save the map, 'world.html' by default", type=str, nargs='?', default="world.html")
     parser.add_argument("-o", "--open", help="open the map in your default browser once finished", action="store_true")
+    parser.add_argument("-v", "--verbose", help="show detailed console output", action="store_true")
 
     args = parser.parse_args()
     if not args.path.endswith(".html"):
@@ -140,17 +143,27 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
+
     ns = NetStat.auto_flavor()
     connections_df = ns.df
+    if args.verbose:
+        print(f"\nConnections:\n{connections_df}")
 
     my_lat, my_lon = get_my_location()
     geodata_df = get_foreign_locations(connections_df["ForeignAddress"])
+    s, f = geodata_df['status'].value_counts()
+    failed_ips = '\n'.join(geodata_df.loc[geodata_df['status'] == 'fail', 'query'].values)
+    print(f"\nLooked up {s} ips. {f} failed:\n{failed_ips}")
     # check if there're any rows with status == "success"
 
     markers_df = group_markers(connections_df, geodata_df)
+    if args.verbose:
+        print(f"\nUnique locations:\n{markers_df}")
     world = draw_map(my_lat, my_lon, markers_df)
     world.save(args.path)
+    print(f"\nMap saved to {args.path}")
 
     if args.open:
         import webbrowser
+        print(f"Opening {args.path} in browser...")
         webbrowser.open(args.path)
