@@ -23,8 +23,8 @@ class NetStat:
     def auto_flavor(cls):
         flavor = platform.system()
         if flavor == "Linux":
-            command = ["netstat", "-tupn"],
-            headers = ["Proto", "Recv-Q", "Send-Q", "LocalAddress", "ForeignAddress", "State", "PID/Name"],
+            command = ["netstat", "-tupn"]
+            headers = ["Proto", "Recv-Q", "Send-Q", "LocalAddress", "ForeignAddress", "State", "PID/Name"]
             normalize_func = NetStat.normalize_linux
 
         elif flavor == "Windows":
