@@ -11,11 +11,11 @@ import folium
 COLORS = ['darkblue', 'white', 'orange', 'green', 'beige', 'darkred', 'gray', 'red', 'lightgray', 'lightgreen', 'lightred', 'lightblue', 'darkgreen', 'black', 'blue', 'purple', 'cadetblue']
 FLAVORED_COMMANDS = {
     "Linux": (
-        "netstat -tupn",
+        ["netstat", "-tupn"],
         ["Proto", "Recv-Q", "Send-Q", "LocalAddress", "ForeignAddress", "State", "PID/Name"]
     ),
     "Windows": (
-        "netstat /ano",
+        ["netstat", "/ano"],
         ["Proto", "LocalAddress", "ForeignAddress", "State", "PID/Name"]
     ),
     # more details here https://github.com/easybuilders/easybuild/wiki/OS_flavor_name_version
