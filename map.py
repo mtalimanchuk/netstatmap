@@ -8,23 +8,48 @@ import pandas as pd
 import requests
 import folium
 
+
+def _normalize_df_linux(df):
+    return df
+
+
+def _normalize_df_windows(df):
+    return df
+
+
+def _normalize_df_darwin(df):
+    df["PID/Name"] = df["PID"] + "/" + df["COMMAND"]
+    df[["LocalAddress", "ForeignAddress"]] = df["NAME"].str.split("->", expand=True)
+    df[["ForeignAddress", "State"]] = df["ForeignAddress"].str.split(" ", expand=True)
+    df.dropna(subset=["ForeignAddress"], inplace=True)
+    return df
+
+
 COLORS = ['blue', 'orange', 'darkblue', 'red', 'pink', 'green', 'beige', 'purple', 'lightblue', 'darkgreen', 'cadetblue', 'white', 'gray', 'darkred', 'lightgray', 'lightgreen', 'black']
 FLAVORED_COMMANDS = {
     "Linux": (
         ["netstat", "-tupn"],
-        ["Proto", "Recv-Q", "Send-Q", "LocalAddress", "ForeignAddress", "State", "PID/Name"]
+        ["Proto", "Recv-Q", "Send-Q", "LocalAddress", "ForeignAddress", "State", "PID/Name"],
+        _normalize_df_linux,
     ),
     "Windows": (
         ["netstat", "/ano"],
-        ["Proto", "LocalAddress", "ForeignAddress", "State", "PID/Name"]
+        ["Proto", "LocalAddress", "ForeignAddress", "State", "PID/Name"],
+        _normalize_df_windows,
     ),
+    "Darwin": (
+        ["lsof", "-i"],
+        ['COMMAND', 'PID', 'USER', 'FD', 'TYPE', 'DEVICE', 'SIZE/OFF', 'NODE', 'NAME'],
+        _normalize_df_darwin,
+    ),
+    # MacOS command needs testing, but should be the same as on Linux
     # more details here https://github.com/easybuilders/easybuild/wiki/OS_flavor_name_version
 }
 
 
 def get_netstat_df():
     os_flavor = platform.system()
-    cmd, header = FLAVORED_COMMANDS[os_flavor]
+    cmd, header, normalize_f = FLAVORED_COMMANDS[os_flavor]
 
     proc = subprocess.Popen(
         cmd,
@@ -34,8 +59,8 @@ def get_netstat_df():
 
     stdout, stderr = proc.communicate()
     raw_output = stdout.decode(locale.getpreferredencoding())  # '866' or 'cp1251' for Russian codepage (check with chcp on windows)
-    rows = [connection.strip().split(maxsplit=6) for connection in raw_output.split("\n") if "tcp" in connection.strip().lower()]
-    return pd.DataFrame(rows, columns=header)
+    rows = [connection.strip().split(maxsplit=len(header) - 1) for connection in raw_output.split("\n") if "tcp" in connection.strip().lower()]
+    return normalize_f(pd.DataFrame(rows, columns=header))
 
 
 def get_my_location():
@@ -82,6 +107,7 @@ if __name__ == "__main__":
     my_lat, my_lon = get_my_location()
     geodata = get_foreign_locations(connections_df["ForeignAddress"])
     geodata_df = pd.DataFrame(geodata)
+    # check if there're any rows with status == "success"
     markers_df = pd.concat([connections_df, geodata_df], axis=1, sort=False).dropna(subset=["lat", "lon"])
     markers_df["desc"] = markers_df["State"] + " " + markers_df['PID/Name'] + " " + markers_df['ForeignAddress']
     unique_markers_df = markers_df.groupby(["lat", "lon", "city", "countryCode"]).aggregate({"desc": "<br>".join}).reset_index()
