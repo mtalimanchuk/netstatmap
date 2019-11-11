@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from argparse import ArgumentParser
 import locale
 import platform
 import random
@@ -8,59 +9,74 @@ import pandas as pd
 import requests
 import folium
 
-
-def _normalize_df_linux(df):
-    return df
-
-
-def _normalize_df_windows(df):
-    return df
-
-
-def _normalize_df_darwin(df):
-    df["PID/Name"] = df["PID"] + "/" + df["COMMAND"]
-    df[["LocalAddress", "ForeignAddress"]] = df["NAME"].str.split("->", expand=True)
-    df[["ForeignAddress", "State"]] = df["ForeignAddress"].str.split(" ", expand=True)
-    df.dropna(subset=["ForeignAddress"], inplace=True)
-    return df
-
-
 COLORS = ['blue', 'orange', 'darkblue', 'red', 'pink', 'green', 'purple', 'lightblue', 'darkgreen', 'cadetblue', 'white', 'gray', 'darkred', 'lightgray', 'lightgreen', 'black']
-FLAVORED_COMMANDS = {
-    "Linux": (
-        ["netstat", "-tupn"],
-        ["Proto", "Recv-Q", "Send-Q", "LocalAddress", "ForeignAddress", "State", "PID/Name"],
-        _normalize_df_linux,
-    ),
-    "Windows": (
-        ["netstat", "/ano"],
-        ["Proto", "LocalAddress", "ForeignAddress", "State", "PID/Name"],
-        _normalize_df_windows,
-    ),
-    "Darwin": (
-        ["lsof", "-i"],
-        ['COMMAND', 'PID', 'USER', 'FD', 'TYPE', 'DEVICE', 'SIZE/OFF', 'NODE', 'NAME'],
-        _normalize_df_darwin,
-    ),
-    # MacOS command needs testing
-    # more details here https://github.com/easybuilders/easybuild/wiki/OS_flavor_name_version
-}
 
 
-def get_netstat_df():
-    os_flavor = platform.system()
-    cmd, header, normalize_f = FLAVORED_COMMANDS[os_flavor]
+class NetStat:
+    def __init__(self, command, headers, normalize_func):
+        self._command = command
+        self._headers = headers
+        self._normalize_source = normalize_func
+        self._rows = self.run()
 
-    proc = subprocess.Popen(
-        cmd,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-    )
+    @classmethod
+    def auto_flavor(cls):
+        flavor = platform.system()
+        if flavor == "Linux":
+            command = ["netstat", "-tupn"],
+            headers = ["Proto", "Recv-Q", "Send-Q", "LocalAddress", "ForeignAddress", "State", "PID/Name"],
+            normalize_func = NetStat.normalize_linux
 
-    stdout, stderr = proc.communicate()
-    raw_output = stdout.decode(locale.getpreferredencoding())  # '866' or 'cp1251' for Russian codepage (check with chcp on windows)
-    rows = [connection.strip().split(maxsplit=len(header) - 1) for connection in raw_output.split("\n") if "tcp" in connection.strip().lower()]
-    return normalize_f(pd.DataFrame(rows, columns=header))
+        elif flavor == "Windows":
+            command = ["netstat", "/ano"]
+            headers = ["Proto", "LocalAddress", "ForeignAddress", "State", "PID/Name"]
+            normalize_func = NetStat.normalize_windows
+
+        elif flavor == "Darwin":
+            command = ["lsof", "-i"]
+            headers = ['COMMAND', 'PID', 'USER', 'FD', 'TYPE', 'DEVICE', 'SIZE/OFF', 'NODE', 'NAME']
+            normalize_func = NetStat.normalize_darwin
+            # MacOS command needs testing
+        else:
+            raise NotImplementedError(f"No support for platform '{flavor}' just yet. You can open an issue if you see this.")
+            # more details here https://github.com/easybuilders/easybuild/wiki/OS_flavor_name_version
+        return cls(command, headers, normalize_func)
+
+    def run(self):
+        proc = subprocess.Popen(
+            self._command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+
+        stdout, stderr = proc.communicate()
+        raw_output = stdout.decode(locale.getpreferredencoding())  # '866' or 'cp1251' for Russian codepage (check with chcp on windows)
+        rows = [connection.strip().split(maxsplit=len(self._headers) - 1) for connection in raw_output.split("\n") if "tcp" in connection.strip().lower()]
+        return rows
+
+    @staticmethod
+    def normalize_linux(df):
+        return df
+
+    @staticmethod
+    def normalize_windows(df):
+        return df
+
+    @staticmethod
+    def normalize_darwin(df):
+        df["PID/Name"] = df["PID"] + "/" + df["COMMAND"]
+        df[["LocalAddress", "ForeignAddress"]] = df["NAME"].str.split("->", expand=True)
+        df[["ForeignAddress", "State"]] = df["ForeignAddress"].str.split(" ", expand=True)
+        df.dropna(subset=["ForeignAddress"], inplace=True)
+        return df
+
+    @property
+    def df(self):
+        _df = self._normalize_source(pd.DataFrame(self._rows, columns=self._headers))
+        _df[["LocalAddress", "LocalPort"]] = _df["LocalAddress"].str.rsplit(":", n=1, expand=True)
+        _df[["ForeignAddress", "ForeignPort"]] = _df["ForeignAddress"].str.rsplit(":", n=1, expand=True)
+        _df = _df.drop(_df[_df["ForeignAddress"].str.contains(r"^(0|127|10)\..*?\..*?\..*?.*|\*|\[::\]")].index).reset_index()
+        return _df
 
 
 def get_my_location():
@@ -73,7 +89,14 @@ def get_my_location():
 def get_foreign_locations(ips):
     url = "http://ip-api.com/batch"
     r = requests.post(url, json=list(ips))
-    return r.json()
+    return pd.DataFrame(r.json())
+
+
+def group_markers(connections_df, geodata_df):
+    markers_df = pd.concat([connections_df, geodata_df], axis=1, sort=False).dropna(subset=["lat", "lon"])
+    markers_df["desc"] = markers_df["State"] + " " + markers_df['PID/Name'] + " " + markers_df['ForeignAddress']
+    unique_markers_df = markers_df.groupby(["lat", "lon", "city", "countryCode"]).aggregate({"desc": "<br>".join}).reset_index()
+    return unique_markers_df
 
 
 def draw_map(my_lat, my_lon, markers_df):
@@ -97,19 +120,30 @@ def draw_map(my_lat, my_lon, markers_df):
     return world
 
 
+def parse_args():
+    parser = ArgumentParser()
+    parser.add_argument("path", help="path to save the map, 'world.html' by default", type=str, default="world.html")
+    parser.add_argument("-o", "--open", help="open the map in your default browser once finished", action="store_true")
+
+    args = parser.parse_args()
+    if not args.path.endswith(".html"):
+        args.path = f"{args.path}.html"
+    return args
+
+
 if __name__ == "__main__":
-    connections_df = get_netstat_df()
-    connections_df[["LocalAddress", "LocalPort"]] = connections_df["LocalAddress"].str.rsplit(":", n=1, expand=True)
-    connections_df[["ForeignAddress", "ForeignPort"]] = connections_df["ForeignAddress"].str.rsplit(":", n=1, expand=True)
-    connections_df = connections_df.drop(connections_df[connections_df["ForeignAddress"].str.contains(r"^(0|127|10)\..*?\..*?\..*?.*|\*|\[::\]")].index).reset_index()
+    args = parse_args()
+    ns = NetStat.auto_flavor()
+    connections_df = ns.df
 
     my_lat, my_lon = get_my_location()
-    geodata = get_foreign_locations(connections_df["ForeignAddress"])
-    geodata_df = pd.DataFrame(geodata)
+    geodata_df = get_foreign_locations(connections_df["ForeignAddress"])
     # check if there're any rows with status == "success"
-    markers_df = pd.concat([connections_df, geodata_df], axis=1, sort=False).dropna(subset=["lat", "lon"])
-    markers_df["desc"] = markers_df["State"] + " " + markers_df['PID/Name'] + " " + markers_df['ForeignAddress']
-    unique_markers_df = markers_df.groupby(["lat", "lon", "city", "countryCode"]).aggregate({"desc": "<br>".join}).reset_index()
 
-    world = draw_map(my_lat, my_lon, unique_markers_df)
-    world.save("world.html")
+    markers_df = group_markers(connections_df, geodata_df)
+    world = draw_map(my_lat, my_lon, markers_df)
+    world.save(args.path)
+
+    if args.open:
+        import webbrowser
+        webbrowser.open(args.path)
