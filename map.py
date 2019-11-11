@@ -13,6 +13,9 @@ COLORS = ['blue', 'orange', 'darkblue', 'red', 'pink', 'green', 'purple', 'light
 
 
 class NetStat:
+    NORMALIZED_OUTPUT_COLUMNS = ["State", "PID/Name", "LocalAddress", "ForeignAddress"]
+    FEATURES = ["State", "PID/Name", "ForeignAddress"]
+
     def __init__(self, command, headers, normalize_func):
         self._command = command
         self._headers = headers
@@ -56,11 +59,11 @@ class NetStat:
 
     @staticmethod
     def normalize_linux(df):
-        return df
+        return df[NetStat.NORMALIZED_OUTPUT_COLUMNS]
 
     @staticmethod
     def normalize_windows(df):
-        return df
+        return df[NetStat.NORMALIZED_OUTPUT_COLUMNS]
 
     @staticmethod
     def normalize_darwin(df):
@@ -68,15 +71,19 @@ class NetStat:
         df[["LocalAddress", "ForeignAddress"]] = df["NAME"].str.split("->", expand=True)
         df[["ForeignAddress", "State"]] = df["ForeignAddress"].str.split(" ", expand=True)
         df.dropna(subset=["ForeignAddress"], inplace=True)
-        return df
+        return df[NetStat.NORMALIZED_OUTPUT_COLUMNS]
+
+    def extract_features(self, normalized_df):
+        df = normalized_df
+        df[["LocalAddress", "LocalPort"]] = df["LocalAddress"].str.rsplit(":", n=1, expand=True)
+        df[["ForeignAddress", "ForeignPort"]] = df["ForeignAddress"].str.rsplit(":", n=1, expand=True)
+        df = df.drop(df[df["ForeignAddress"].str.contains(r"^(0|127|10)\..*?\..*?\..*?.*|\*|\[::\]")].index).reset_index()
+        return df[NetStat.FEATURES]
 
     @property
     def df(self):
-        _df = self._normalize_source(pd.DataFrame(self._rows, columns=self._headers))
-        _df[["LocalAddress", "LocalPort"]] = _df["LocalAddress"].str.rsplit(":", n=1, expand=True)
-        _df[["ForeignAddress", "ForeignPort"]] = _df["ForeignAddress"].str.rsplit(":", n=1, expand=True)
-        _df = _df.drop(_df[_df["ForeignAddress"].str.contains(r"^(0|127|10)\..*?\..*?\..*?.*|\*|\[::\]")].index).reset_index()
-        return _df
+        _df = pd.DataFrame(self._rows, columns=self._headers)
+        return self.extract_features(self._normalize_source(_df))
 
 
 def get_my_location():
