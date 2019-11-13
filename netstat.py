@@ -61,7 +61,7 @@ class NetStat:
 
     @staticmethod
     def normalize_linux(df):
-        return df[NetStat.NORMALIZED_OUTPUT_COLUMNS]
+        return df.loc[:, NetStat.NORMALIZED_OUTPUT_COLUMNS]
 
     @staticmethod
     def normalize_windows(df):
@@ -73,7 +73,7 @@ class NetStat:
         df[["LocalAddress", "ForeignAddress"]] = df["NAME"].str.split("->", expand=True)
         df[["ForeignAddress", "State"]] = df["ForeignAddress"].str.split(" ", expand=True)
         df.dropna(subset=["ForeignAddress"], inplace=True)
-        return df[NetStat.NORMALIZED_OUTPUT_COLUMNS]
+        return df.loc[:, NetStat.NORMALIZED_OUTPUT_COLUMNS]
 
     def extract_features(self, normalized_df):
         df = normalized_df
