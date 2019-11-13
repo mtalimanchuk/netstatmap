@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.5.1/dist/leaflet.css"
+   integrity="sha512-xwE/Az9zrjBIphAcBb3F6JVqxf46+CDLwfLMHloNu6KEQCAWi6HcDUbeOfBIptF7tcCzusKFjFw2yuvEpDL9wQ=="
+   crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.5.1/dist/leaflet.js"
+   integrity="sha512-GffPMF3RvMeYyc1LWMHtK8EbPv0iNZ8/oTtHPx9/cc2ILxQ+u905qIwdpULaqDkyBKgOaB57QTMg7ztg8Jm2Og=="
+   crossorigin=""></script>
+  <style>
+    html, body {width: 100%;height: 100%;margin: 0;padding: 0;}
+    #mapid {
+      position: relative;
+      width: 100.0%;
+      height: 100.0%;
+      left: 0.0%;
+      top: 0.0%;
+    }
+  </style>
+  <title>Netstatmap</title>
+</head>
+<body>
+    <div id="mapid"></div>
+    <script>
+    my_lat = {{ my_lat }};
+    my_lon = {{ my_lon }};
+    netstatmap = L.map('mapid').setView([my_lat, my_lon], zoom=2);
+    L.tileLayer(
+        "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        {"attribution": "Data by \u0026copy; \u003ca href=\"http://openstreetmap.org\"\u003eOpenStreetMap\u003c/a\u003e, under \u003ca href=\"http://www.openstreetmap.org/copyright\"\u003eODbL\u003c/a\u003e.", "detectRetina": false, "maxNativeZoom": 18, "maxZoom": 18, "minZoom": 0, "noWrap": false, "opacity": 1, "subdomains": "abc", "tms": false}
+    ).addTo(netstatmap);
+
+    var currentMarkerGroup;
+    var interval = 15 * 1000;
+
+    window.onload = updateMap();
+
+    function updateMap() {
+        url = {{ url_for('update')|tojson }};
+        fetch(url, {
+            method: 'POST',
+            body: JSON.stringify("update_pls")
+        })
+        .then(parseJSON)
+        .then(setNewMarkers);
+        setTimeout(updateMap, interval);
+    };
+
+    function parseJSON(response) {
+        return response.json();
+    };
+
+    function setNewMarkers(markers) {
+        console.log("got:");
+        console.log(typeof markers);
+        markers = JSON.parse(markers)
+
+        if (typeof currentMarkerGroup !== 'undefined') {
+            netstatmap.removeLayer(currentMarkerGroup)
+        }
+        currentMarkerGroup = new L.layerGroup()
+
+        markers.forEach(function(m) {
+            marker = L.marker([m.lat, m.lon]);
+            polyline = L.polyline([[my_lat, my_lon], [m.lat, m.lon]]);
+            fg = L.featureGroup([marker, polyline])
+            .bindPopup(m.State + " " + m.PIDName + " " + m.countryCode + " " + m.city + " " + m.org)
+            .on('click', function() { alert('Clicked on a member of the group!') })
+            .addTo(currentMarkerGroup);
+        })
+        currentMarkerGroup.addTo(netstatmap)
+    };
+
+    </script>
+</body>
+</html>

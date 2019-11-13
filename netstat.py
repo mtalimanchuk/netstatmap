@@ -15,8 +15,8 @@ COLORS = ['blue', 'orange', 'darkblue', 'red', 'pink', 'green', 'purple', 'light
 
 
 class NetStat:
-    NORMALIZED_OUTPUT_COLUMNS = ["State", "PID/Name", "LocalAddress", "ForeignAddress"]
-    FEATURES = ["State", "PID/Name", "ForeignAddress"]
+    NORMALIZED_OUTPUT_COLUMNS = ["State", "PIDName", "LocalAddress", "ForeignAddress"]
+    FEATURES = ["State", "PIDName", "ForeignAddress"]
 
     def __init__(self, command, headers, normalize_func):
         self._command = command
@@ -29,12 +29,12 @@ class NetStat:
         flavor = platform.system()
         if flavor == "Linux":
             command = ["netstat", "-tupn"]
-            headers = ["Proto", "Recv-Q", "Send-Q", "LocalAddress", "ForeignAddress", "State", "PID/Name"]
+            headers = ["Proto", "Recv-Q", "Send-Q", "LocalAddress", "ForeignAddress", "State", "PIDName"]
             normalize_func = NetStat.normalize_linux
 
         elif flavor == "Windows":
             command = ["netstat", "/ano"]
-            headers = ["Proto", "LocalAddress", "ForeignAddress", "State", "PID/Name"]
+            headers = ["Proto", "LocalAddress", "ForeignAddress", "State", "PIDName"]
             normalize_func = NetStat.normalize_windows
 
         elif flavor == "Darwin":
@@ -69,7 +69,7 @@ class NetStat:
 
     @staticmethod
     def normalize_darwin(df):
-        df["PID/Name"] = df["PID"] + "/" + df["COMMAND"]
+        df["PIDName"] = df["PID"] + "/" + df["COMMAND"]
         df[["LocalAddress", "ForeignAddress"]] = df["NAME"].str.split("->", expand=True)
         df[["ForeignAddress", "State"]] = df["ForeignAddress"].str.split(" ", expand=True)
         df.dropna(subset=["ForeignAddress"], inplace=True)
@@ -103,9 +103,10 @@ def get_foreign_locations(ips):
 
 def group_markers(connections_df, geodata_df):
     markers_df = pd.concat([connections_df, geodata_df], axis=1, sort=False).dropna(subset=["lat", "lon"])
-    markers_df["desc"] = markers_df["State"] + " " + markers_df['PID/Name'] + " " + markers_df['ForeignAddress']
-    unique_markers_df = markers_df.groupby(["lat", "lon", "city", "countryCode"]).aggregate({"desc": "<br>".join}).reset_index()
-    return unique_markers_df
+    # markers_df["desc"] = markers_df["State"] + " " + markers_df['PID/Name'] + " " + markers_df['ForeignAddress']
+    # unique_markers_df = markers_df.groupby(["lat", "lon", "city", "countryCode"]).aggregate({"desc": "<br>".join}).reset_index()
+    # return unique_markers_df
+    return markers_df
 
 
 def draw_map(my_lat, my_lon, markers_df):
@@ -141,6 +142,18 @@ def parse_args():
     return args
 
 
+def run_netstat():
+    ns = NetStat.auto_flavor()
+    connections_df = ns.df
+
+    geodata_df = get_foreign_locations(connections_df["ForeignAddress"])
+    stats = geodata_df.sort_values(by=['status'])
+    print(f"\nLookup results: {stats}")
+
+    markers_df = group_markers(connections_df, geodata_df)
+    return markers_df
+
+
 if __name__ == "__main__":
     args = parse_args()
 
@@ -151,9 +164,9 @@ if __name__ == "__main__":
 
     my_lat, my_lon = get_my_location()
     geodata_df = get_foreign_locations(connections_df["ForeignAddress"])
-    s, f = geodata_df['status'].value_counts()
+    stats = geodata_df['status'].value_counts()
     failed_ips = '\n'.join(geodata_df.loc[geodata_df['status'] == 'fail', 'query'].values)
-    print(f"\nLooked up {s} ips. {f} failed:\n{failed_ips}")
+    print(f"\nLooked up results: {stats}:\n{failed_ips}")
     # check if there're any rows with status == "success"
 
     markers_df = group_markers(connections_df, geodata_df)
