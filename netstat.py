@@ -1,22 +1,20 @@
 #!/usr/bin/env python3
-from argparse import ArgumentParser
 import locale
 import platform
-import random
+import secrets
 import subprocess
 import warnings
 warnings.simplefilter(action='ignore', category=UserWarning)
 
 import pandas as pd
 import requests
-import folium
 
 COLORS = ['blue', 'orange', 'darkblue', 'red', 'pink', 'green', 'purple', 'lightblue', 'darkgreen', 'cadetblue', 'white', 'gray', 'darkred', 'lightgray', 'lightgreen', 'black']
 
 
 class NetStat:
     NORMALIZED_OUTPUT_COLUMNS = ["State", "PIDName", "LocalAddress", "ForeignAddress"]
-    FEATURES = ["State", "PIDName", "ForeignAddress"]
+    FEATURES = ["State", "PIDName", "ForeignAddress", "ForeignPort"]
 
     def __init__(self, command, headers, normalize_func):
         self._command = command
@@ -101,82 +99,32 @@ def get_foreign_locations(ips):
     return pd.DataFrame(r.json())
 
 
-def group_markers(connections_df, geodata_df):
-    markers_df = pd.concat([connections_df, geodata_df], axis=1, sort=False).dropna(subset=["lat", "lon"])
-    # markers_df["desc"] = markers_df["State"] + " " + markers_df['PID/Name'] + " " + markers_df['ForeignAddress']
-    # unique_markers_df = markers_df.groupby(["lat", "lon", "city", "countryCode"]).aggregate({"desc": "<br>".join}).reset_index()
-    # return unique_markers_df
-    return markers_df
-
-
-def draw_map(my_lat, my_lon, markers_df):
-    world = folium.Map(location=[my_lat, my_lon], zoom_start=2)
-
-    for m in markers_df.itertuples():
-        feature_group = folium.FeatureGroup(f"{m.city} [{m.countryCode}]")
-
-        randcolor = random.choice(COLORS)
-        line_locations = [(my_lat, my_lon), (m.lat, m.lon)]
-        line_tooltip = folium.Tooltip(m.desc)
-        marker_location = [m.lat, m.lon]
-        marker_popup = folium.Popup(m.desc, max_width=500, show=True)
-        marker_icon = folium.Icon(color=randcolor, icon='info-sign')
-
-        folium.PolyLine(locations=line_locations, tooltip=line_tooltip, no_clip=True, color=randcolor).add_to(feature_group)
-        folium.Marker(location=marker_location, popup=marker_popup, icon=marker_icon).add_to(feature_group)
-        feature_group.add_to(world)
-
-    folium.LayerControl('topleft', collapsed=False).add_to(world)
-    return world
-
-
-def parse_args():
-    parser = ArgumentParser()
-    parser.add_argument("path", help="path to save the map, 'world.html' by default", type=str, nargs='?', default="world.html")
-    parser.add_argument("-o", "--open", help="open the map in your default browser once finished", action="store_true")
-    parser.add_argument("-v", "--verbose", help="show detailed console output", action="store_true")
-
-    args = parser.parse_args()
-    if not args.path.endswith(".html"):
-        args.path = f"{args.path}.html"
-    return args
-
-
 def run_netstat():
+
+    def set_marker_hash(lat, lon, last_df):
+        try:
+            return last_df[(last_df["lat"] == lat) & (last_df["lon"] == lon)]["markerHash"].values[0]
+        except (IndexError, TypeError):
+            return secrets.token_hex(3)
+
     ns = NetStat.auto_flavor()
     connections_df = ns.df
 
     geodata_df = get_foreign_locations(connections_df["ForeignAddress"])
-    stats = geodata_df.sort_values(by=['status'])
-    print(f"\nLookup results: {stats}")
 
-    markers_df = group_markers(connections_df, geodata_df)
-    return markers_df
+    markers_df = pd.concat([connections_df, geodata_df], axis=1, sort=False).dropna(subset=["lat", "lon"])
+    unique_ips_df = markers_df[["lat", "lon"]].drop_duplicates()
 
+    try:
+        last_df = pd.read_csv("lastscan.csv")
+    except FileNotFoundError:
+        last_df = None
 
-if __name__ == "__main__":
-    args = parse_args()
+    unique_ips_df["markerHash"] = unique_ips_df.apply(lambda x: set_marker_hash(x.lat, x.lon, last_df), axis=1)
+    markers_df = pd.merge(markers_df, unique_ips_df, on=["lat", "lon"], how='left')[["State", "ForeignAddress", "ForeignPort", "PIDName", "lat", "lon", "markerHash", "isp", "org", "country", "city"]]
+    markers_df["desc"] = markers_df["State"] + " " + markers_df['ForeignAddress'] + ":" + markers_df["ForeignPort"] + " " + markers_df['PIDName'] + " " + markers_df['org']
+    unique_markers_df = markers_df.groupby(["markerHash"]).aggregate({"lat": "first", "lon": "first", "city": "first", "country": "first", "desc": "<br>".join}).reset_index()
 
-    ns = NetStat.auto_flavor()
-    connections_df = ns.df
-    if args.verbose:
-        print(f"\nConnections:\n{connections_df}")
-
-    my_lat, my_lon = get_my_location()
-    geodata_df = get_foreign_locations(connections_df["ForeignAddress"])
-    stats = geodata_df['status'].value_counts()
-    failed_ips = '\n'.join(geodata_df.loc[geodata_df['status'] == 'fail', 'query'].values)
-    print(f"\nLooked up results: {stats}:\n{failed_ips}")
-    # check if there're any rows with status == "success"
-
-    markers_df = group_markers(connections_df, geodata_df)
-    if args.verbose:
-        print(f"\nUnique locations:\n{markers_df}")
-    world = draw_map(my_lat, my_lon, markers_df)
-    world.save(args.path)
-    print(f"\nMap saved to {args.path}")
-
-    if args.open:
-        import webbrowser
-        print(f"Opening {args.path} in browser...")
-        webbrowser.open(args.path)
+    path = "lastscan.csv"
+    unique_markers_df.to_csv(path, index=False)
+    return unique_markers_df
