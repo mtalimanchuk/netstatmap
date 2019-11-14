@@ -6,10 +6,13 @@ import subprocess
 import warnings
 warnings.simplefilter(action='ignore', category=UserWarning)
 
+import numpy as np
 import pandas as pd
 import requests
 
-COLORS = ['blue', 'orange', 'darkblue', 'red', 'pink', 'green', 'purple', 'lightblue', 'darkgreen', 'cadetblue', 'white', 'gray', 'darkred', 'lightgray', 'lightgreen', 'black']
+
+# available colors for leaflet markers
+# COLORS = ['blue', 'orange', 'darkblue', 'red', 'pink', 'green', 'purple', 'lightblue', 'darkgreen', 'cadetblue', 'white', 'gray', 'darkred', 'lightgray', 'lightgreen', 'black']
 
 
 class NetStat:
@@ -19,8 +22,8 @@ class NetStat:
     def __init__(self, command, headers, normalize_func):
         self._command = command
         self._headers = headers
-        self._normalize_source = normalize_func
-        self._rows = self.run()
+        self._source_normalization_func = normalize_func
+        self._rows = self.run_command()
 
     @classmethod
     def auto_flavor(cls):
@@ -45,7 +48,7 @@ class NetStat:
             # more details here https://github.com/easybuilders/easybuild/wiki/OS_flavor_name_version
         return cls(command, headers, normalize_func)
 
-    def run(self):
+    def run_command(self):
         proc = subprocess.Popen(
             self._command,
             stdout=subprocess.PIPE,
@@ -74,7 +77,7 @@ class NetStat:
         return df.loc[:, NetStat.NORMALIZED_OUTPUT_COLUMNS]
 
     def extract_features(self, normalized_df):
-        df = normalized_df
+        df = self._source_normalization_func(normalized_df)
         df[["LocalAddress", "LocalPort"]] = df["LocalAddress"].str.rsplit(":", n=1, expand=True)
         df[["ForeignAddress", "ForeignPort"]] = df["ForeignAddress"].str.rsplit(":", n=1, expand=True)
         df = df.drop(df[df["ForeignAddress"].str.contains(r"^(0|127|10)\..*?\..*?\..*?.*|\*|\[::\]")].index).reset_index()
@@ -83,7 +86,7 @@ class NetStat:
     @property
     def df(self):
         _df = pd.DataFrame(self._rows, columns=self._headers)
-        return self.extract_features(self._normalize_source(_df))
+        return self.extract_features(_df)
 
 
 def get_my_location():
@@ -99,11 +102,11 @@ def get_foreign_locations(ips):
     return pd.DataFrame(r.json())
 
 
-def run_netstat():
+def run(markers_df_path='netstat/lastscan.csv'):
 
-    def set_marker_hash(lat, lon, last_df):
+    def get_marker_hash(lat, lon, lastscan_df):
         try:
-            return last_df[(last_df["lat"] == lat) & (last_df["lon"] == lon)]["markerHash"].values[0]
+            return lastscan_df[np.isclose(lastscan_df["lat"], lat) & np.isclose(lastscan_df["lon"], lon)]["markerHash"].values[0]
         except (IndexError, TypeError):
             return secrets.token_hex(3)
 
@@ -111,20 +114,18 @@ def run_netstat():
     connections_df = ns.df
 
     geodata_df = get_foreign_locations(connections_df["ForeignAddress"])
-
     markers_df = pd.concat([connections_df, geodata_df], axis=1, sort=False).dropna(subset=["lat", "lon"])
-    unique_ips_df = markers_df[["lat", "lon"]].drop_duplicates()
+    unique_locations_df = markers_df[["lat", "lon"]].drop_duplicates()
 
     try:
-        last_df = pd.read_csv("lastscan.csv")
+        lastscan_df = pd.read_csv(markers_df_path)
     except FileNotFoundError:
-        last_df = None
+        lastscan_df = None
 
-    unique_ips_df["markerHash"] = unique_ips_df.apply(lambda x: set_marker_hash(x.lat, x.lon, last_df), axis=1)
-    markers_df = pd.merge(markers_df, unique_ips_df, on=["lat", "lon"], how='left')[["State", "ForeignAddress", "ForeignPort", "PIDName", "lat", "lon", "markerHash", "isp", "org", "country", "city"]]
+    unique_locations_df["markerHash"] = unique_locations_df.apply(lambda x: get_marker_hash(x.lat, x.lon, lastscan_df), axis=1)
+    markers_df = pd.merge(markers_df, unique_locations_df, on=["lat", "lon"], how='left')[["State", "ForeignAddress", "ForeignPort", "PIDName", "lat", "lon", "markerHash", "isp", "org", "country", "city"]]
     markers_df["desc"] = markers_df["State"] + " " + markers_df['ForeignAddress'] + ":" + markers_df["ForeignPort"] + " " + markers_df['PIDName'] + " " + markers_df['org']
     unique_markers_df = markers_df.groupby(["markerHash"]).aggregate({"lat": "first", "lon": "first", "city": "first", "country": "first", "desc": "<br>".join}).reset_index()
 
-    path = "lastscan.csv"
-    unique_markers_df.to_csv(path, index=False)
+    unique_markers_df.to_csv(markers_df_path, index=False)
     return unique_markers_df

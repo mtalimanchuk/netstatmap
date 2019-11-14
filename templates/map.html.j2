@@ -61,13 +61,11 @@
             netstatmap.removeLayer(currentMarkerGroup)
         }
         currentMarkerGroup = new L.layerGroup()
-
         markers.forEach(function(m) {
-            marker = L.marker([m.lat, m.lon]);
-            polyline = L.polyline([[my_lat, my_lon], [m.lat, m.lon]]);
+            marker = L.marker([m.lat, m.lon], {title: m.city + ", " + m.country});
+            polyline = L.polyline([[my_lat, my_lon], [m.lat, m.lon]], {color: '#' + m.markerHash});
             fg = L.featureGroup([marker, polyline])
-            .bindPopup(m.State + " " + m.PIDName + " " + m.countryCode + " " + m.city + " " + m.org)
-            .on('click', function() { alert('Clicked on a member of the group!') })
+            .bindPopup(m.desc)
             .addTo(currentMarkerGroup);
         })
         currentMarkerGroup.addTo(netstatmap)
