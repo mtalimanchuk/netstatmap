@@ -3,7 +3,6 @@ import secrets
 import warnings
 warnings.simplefilter(action='ignore', category=UserWarning)
 
-import numpy as np
 import pandas as pd
 import psutil
 import requests
@@ -18,11 +17,19 @@ def yield_remote_connections():
         try:
             remoteip, remoteport = p.raddr
             if remoteip not in FALSE_POSITIVE_IPS:
-                yield {'pid': p.pid, 'remoteip': remoteip, 'remoteport': remoteport, 'status': p.status}
+                yield {'pid': p.pid, 'remoteip': remoteip, 'remoteport': remoteport, 'pstatus': p.status}
         except ValueError:
             pass
         except Exception as e:
             print(f"---\t[!]\t---\t{type(e)}:\n{e}")
+
+
+def yield_process_info():
+    for p in psutil.process_iter(attrs=['pid', 'name', 'username']):
+        pid = p.info['pid']
+        pname = p.info['name']
+        pusername = p.info['username']
+        yield {"pid": pid, "pname": pname, "pusername": pusername}
 
 
 def get_my_location():
@@ -44,25 +51,18 @@ def get_foreign_locations(ips):
         print(f"Exception {type(e)}:\n{e}")
 
 
-def run(markers_df_path='netstat/lastscan.csv'):
-
-    # def get_marker_hash(lat, lon, lastscan_df):
-    #     try:
-    #         return lastscan_df[np.isclose(lastscan_df["lat"], lat) & np.isclose(lastscan_df["lon"], lon)]["markerHash"].values[0]
-    #     except (IndexError, TypeError):
-    #         return secrets.token_hex(3)
-
+def run(known_procs, markers_df_path='netstat/lastscan.csv'):
     connections_df = pd.DataFrame(yield_remote_connections())
-    processes_df = pd.DataFrame([p.info for p in psutil.process_iter(attrs=['pid', 'name', 'username'])])
+    processes_df = pd.DataFrame(yield_process_info())
     full_connections_df = pd.merge(connections_df, processes_df, on='pid', how='left')
 
     geodata_df = get_foreign_locations(full_connections_df['remoteip'])
     markers_df = pd.concat([full_connections_df, geodata_df], axis=1, sort=False).dropna(subset=["lat", "lon"])
 
-    # try:
-    #     lastscan_df = pd.read_csv(markers_df_path)
-    # except FileNotFoundError:
-    #     lastscan_df = None
+    markers_df["globalPid"] = markers_df.apply(lambda row: f"{row['pname']}/{row['pid']}", axis=1)
+    unique_procs_df = markers_df[['globalPid']].drop_duplicates()
+    unique_procs_df["markerHash"] = unique_procs_df.apply(lambda row: known_procs.get(row['globalPid'], secrets.token_hex(3)), axis=1)
+    markers_df = pd.merge(markers_df, unique_procs_df, on="globalPid", how='left')
+    markers_df["desc"] = markers_df.apply(lambda row: f"{row['pstatus']} {row['remoteip']}:{row['remoteport']} ({row['org']}) {row['globalPid']} U: {row['pusername']}", axis=1)
 
-    markers_df.to_csv(markers_df_path)
     return markers_df
