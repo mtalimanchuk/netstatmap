@@ -3,12 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.5.1/dist/leaflet.css"
-   integrity="sha512-xwE/Az9zrjBIphAcBb3F6JVqxf46+CDLwfLMHloNu6KEQCAWi6HcDUbeOfBIptF7tcCzusKFjFw2yuvEpDL9wQ=="
-   crossorigin=""/>
-  <script src="https://unpkg.com/leaflet@1.5.1/dist/leaflet.js"
-   integrity="sha512-GffPMF3RvMeYyc1LWMHtK8EbPv0iNZ8/oTtHPx9/cc2ILxQ+u905qIwdpULaqDkyBKgOaB57QTMg7ztg8Jm2Og=="
-   crossorigin=""></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/promise-polyfill@7.1.2/dist/polyfill.min.js"></script>
+  <script src="https://unpkg.com/whatwg-fetch@2.0.4/fetch.js"></script>
   <style>
     html, body {width: 100%;height: 100%;margin: 0;padding: 0;}
     #mapid {
@@ -26,26 +24,44 @@
     <script>
     my_lat = {{ my_lat }};
     my_lon = {{ my_lon }};
-    netstatmap = L.map('mapid').setView([my_lat, my_lon], zoom=2);
 
     // http://leaflet-extras.github.io/leaflet-providers/preview/index.html
     tilesUrl = "https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png";
     tilesAttribution = "Map tiles by Carto, under CC BY 3.0. Data by \u0026copy; \u003ca href=\"http://openstreetmap.org\"\u003eOpenStreetMap\u003c/a\u003e, under \u003ca href=\"http://www.openstreetmap.org/copyright\"\u003eODbL\u003c/a\u003e.";
-    L.tileLayer(
+    tiles = L.tileLayer(
         tilesUrl,
         {"attribution": tilesAttribution, "detectRetina": false, "maxNativeZoom": 18, "maxZoom": 10, "minZoom": 0, "noWrap": false, "opacity": 1, "subdomains": "abc", "tms": false}
-    ).addTo(netstatmap);
+    );
+ 
+    var baseMaps = {
+        "Dark": tiles,
+    };
 
-    var currentMarkerGroup;
+    var overlayMaps = {
+        //processes will be here
+    };
+    myDesc = "<span style=\"font-family: 'Lucida Console', Monaco, monospace;\">" + {{ my_desc|tojson }} + "</span>";
+    myMarker = L.circleMarker([my_lat, my_lon], {radius: 10, color: "#ffffff"})
+    .bindTooltip(myDesc);
+    netstatmap = L.map('mapid', {
+        layers: [tiles, myMarker],
+        zoom: 3,
+        })
+        .setView([my_lat, my_lon]);
+
+    layerControl = L.control.layers(baseMaps, overlayMaps, {collapsed: false, hideSingleBase: true, position: "topleft"}).addTo(netstatmap);
+    var currentProcLayers = [];
     var interval = 15 * 1000;
 
     window.onload = updateMap();
 
     function updateMap() {
-        url = {{ url_for('update')|tojson }};
+        var url = {{ url_for('update')|tojson }};
+        var knownProcs = {};
+        currentProcLayers.forEach(proc => knownProcs[proc.globalPid] = proc.procHash);
         fetch(url, {
             method: 'POST',
-            body: JSON.stringify("update_pls")
+            body: JSON.stringify(knownProcs)
         })
         .then(parseJSON)
         .then(setNewMarkers);
@@ -53,26 +69,52 @@
     };
 
     function parseJSON(response) {
-        return response.json();
+        r = response.json();
+        return r
     };
 
-    function setNewMarkers(markers) {
-        console.log("got:");
-        console.log(typeof markers);
-        markers = JSON.parse(markers)
+    function setNewMarkers(payload) {
+        console.log("Receiving new markers data:");
+        console.log(payload);
+        newMarkers = payload[0];
+        newProcGroups = payload[1];
 
-        if (typeof currentMarkerGroup !== 'undefined') {
-            netstatmap.removeLayer(currentMarkerGroup)
-        }
-        currentMarkerGroup = new L.layerGroup()
-        markers.forEach(function(m) {
-            marker = L.marker([m.lat, m.lon], {title: m.city + ", " + m.country});
-            polyline = L.polyline([[my_lat, my_lon], [m.lat, m.lon]], {color: '#' + m.markerHash});
-            fg = L.featureGroup([marker, polyline])
-            .bindPopup(m.desc)
-            .addTo(currentMarkerGroup);
-        })
-        currentMarkerGroup.addTo(netstatmap)
+        currentProcLayers.forEach(function(oldProc, i) {
+            if (newProcGroups.filter(newProc => newProc.procHash === oldProc.procHash).length === 0) {
+                oldProc.layerGroup.remove();
+                layerControl.removeLayer(oldProc.layerGroup);
+                currentProcLayers.splice(i, 1);
+            }
+        });
+
+        newProcGroups.forEach(function(newProc) {
+            existingProcLayer = currentProcLayers.filter(oldProc => oldProc.procHash === newProc.procHash);
+            if (existingProcLayer.length > 0) {
+                currentProcLayer = existingProcLayer[0].layerGroup;
+            } else {
+                currentProcLayer = new L.layerGroup();
+                currentProcLayers = [...currentProcLayers, {procHash: newProc.procHash, globalPid: newProc.globalPid, layerGroup: currentProcLayer}];
+                currentProcLayer.addTo(netstatmap);
+                
+                overlayName = "<span style=\"color: #" + newProc.procHash + "; font-family: 'Lucida Console', Monaco, monospace; text-shadow: 1px 1px 0.7px #000000;\"><b>" + newProc.globalPid + "</b></span>";
+                layerControl.addOverlay(currentProcLayer, overlayName);
+            };
+            currentProcLayer.clearLayers();
+            currentProcMarkers = newMarkers.filter(m => m.procHash === newProc.procHash);
+            currentProcMarkers.forEach(function(m) {
+                let lineTooltip = "<span style=\"font-family: 'Lucida Console', Monaco, monospace;\">" + m.city + ", " + m.region + ". " + m.country + "</span>";
+                let groupPopup = "<span style=\"font-family: 'Lucida Console', Monaco, monospace;\">" + m.desc + "</span>";
+                marker = L.circleMarker([m.lat, m.lon], {
+                    fillColor: "#" + m.procHash,
+                    });
+                polyline = L.polyline([[my_lat, my_lon], [m.lat, m.lon]], {color: '#' + m.procHash})
+                .bindTooltip(lineTooltip);
+                connectionFeatureGroup = L.featureGroup([marker, polyline])
+                .bindPopup(groupPopup)
+                .addTo(currentProcLayer);
+            });
+
+        });
     };
 
     </script>

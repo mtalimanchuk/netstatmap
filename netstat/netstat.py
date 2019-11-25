@@ -37,7 +37,7 @@ def get_my_location():
     try:
         r = requests.get(url)
         ip_data = r.json()
-        return ip_data['lat'], ip_data['lon']
+        return ip_data
     except Exception as e:
         print(f"Exception {type(e)}:\n{e}")
 
@@ -51,7 +51,7 @@ def get_foreign_locations(ips):
         print(f"Exception {type(e)}:\n{e}")
 
 
-def run(known_procs, markers_df_path='netstat/lastscan.csv'):
+def run(known_procs):
     connections_df = pd.DataFrame(yield_remote_connections())
     processes_df = pd.DataFrame(yield_process_info())
     full_connections_df = pd.merge(connections_df, processes_df, on='pid', how='left')
@@ -61,8 +61,9 @@ def run(known_procs, markers_df_path='netstat/lastscan.csv'):
 
     markers_df["globalPid"] = markers_df.apply(lambda row: f"{row['pname']}/{row['pid']}", axis=1)
     unique_procs_df = markers_df[['globalPid']].drop_duplicates()
-    unique_procs_df["markerHash"] = unique_procs_df.apply(lambda row: known_procs.get(row['globalPid'], secrets.token_hex(3)), axis=1)
+    unique_procs_df["procHash"] = unique_procs_df.apply(lambda row: known_procs.get(row['globalPid'], secrets.token_hex(3)), axis=1)
     markers_df = pd.merge(markers_df, unique_procs_df, on="globalPid", how='left')
     markers_df["desc"] = markers_df.apply(lambda row: f"{row['pstatus']} {row['remoteip']}:{row['remoteport']} ({row['org']}) {row['globalPid']} U: {row['pusername']}", axis=1)
 
-    return markers_df
+    print(markers_df)
+    return markers_df.to_dict('records'), unique_procs_df.to_dict('records')

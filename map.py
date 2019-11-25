@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, after_this_request
 
 from netstat import netstat
 
@@ -12,17 +12,19 @@ def index():
 
 @app.route('/map')
 def map():
-    my_lat, my_lon = netstat.get_my_location()
-    return render_template("map.html.j2", my_lat=my_lat, my_lon=my_lon)
+    my_loc = netstat.get_my_location()
+    my_lat, my_lon = my_loc['lat'], my_loc['lon']
+    my_desc = f"{my_loc['city']}, {my_loc['region']}. {my_loc['country']}"
+    return render_template("map.html.j2", my_lat=my_lat, my_lon=my_lon, my_desc=my_desc)
 
 
 @app.route('/map/update', methods=["POST"])
 def update():
-    # r = request.get_json(force=True)
-    # print(r)
-    new_markers_df = netstat.run()
-    new_markers = new_markers_df.to_json(orient='records')
-    return jsonify(new_markers)
+    client_procs = request.get_json(force=True)
+    app.logger.info(f"Client has layers: {client_procs}")
+    new_markers, new_procs = netstat.run(known_procs=client_procs)
+    app.logger.info(f"Sending layers: {new_procs}")
+    return jsonify([new_markers, new_procs])
 
 
 if __name__ == '__main__':
