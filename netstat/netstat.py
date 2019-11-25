@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import secrets
 import warnings
 warnings.simplefilter(action='ignore', category=UserWarning)
@@ -64,7 +63,9 @@ def run(known_procs):
     unique_procs_df["procHash"] = unique_procs_df.apply(lambda row: known_procs.get(row['globalPid'], secrets.token_hex(3)), axis=1)
     markers_df = pd.merge(markers_df, unique_procs_df, on="globalPid", how='left')
     markers_df["desc"] = markers_df.apply(lambda row: f"{row['pstatus']} {row['remoteip']}:{row['remoteport']} ({row['org']}) {row['globalPid']} U: {row['pusername']}", axis=1)
-    markers_df.drop('message', axis=1, inplace=True)
+    markers_df.fillna("NaN", inplace=True)
+    markers_df.drop_duplicates(inplace=True)
+    print(markers_df)
 
     print("[!] Client may experience errors parsing response because these columns contain NaN values:\n", markers_df.loc[:, markers_df.isna().any()])
     return markers_df.to_dict('records'), unique_procs_df.to_dict('records')
