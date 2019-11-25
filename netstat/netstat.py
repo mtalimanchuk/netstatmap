@@ -65,7 +65,6 @@ def run(known_procs):
     markers_df["desc"] = markers_df.apply(lambda row: f"{row['pstatus']} {row['remoteip']}:{row['remoteport']} ({row['org']}) {row['globalPid']} U: {row['pusername']}", axis=1)
     markers_df.fillna("NaN", inplace=True)
     markers_df.drop_duplicates(inplace=True)
-    print(markers_df)
 
     print("[!] Client may experience errors parsing response because these columns contain NaN values:\n", markers_df.loc[:, markers_df.isna().any()])
     return markers_df.to_dict('records'), unique_procs_df.to_dict('records')
