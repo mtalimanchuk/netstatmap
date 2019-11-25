@@ -16,6 +16,22 @@
       left: 0.0%;
       top: 0.0%;
     }
+
+    .cssIcon {
+    }
+
+    .rhomboidIcon {
+        border: 3px solid #ffffff;
+        height: 15px;
+        width: 15px;
+        transform: rotate(45deg);
+        background-color: rgba(255, 255, 255, 0.2);
+    }
+
+    .rhomboidIcon:hover {
+        background-color: rgba(255, 255, 255, 0.7);
+        transform: rotate(0deg);
+    }
   </style>
   <title>Netstatmap</title>
 </head>
@@ -70,6 +86,7 @@
 
     function parseJSON(response) {
         r = response.json();
+        console.log(r);
         return r
     };
 
@@ -104,13 +121,21 @@
             currentProcMarkers.forEach(function(m) {
                 let lineTooltip = "<span style=\"font-family: 'Lucida Console', Monaco, monospace;\">" + m.city + ", " + m.region + ". " + m.country + "</span>";
                 let groupPopup = "<span style=\"font-family: 'Lucida Console', Monaco, monospace;\">" + m.desc + "</span>";
-                marker = L.circleMarker([m.lat, m.lon], {
-                    fillColor: "#" + m.procHash,
+                let myIcon = L.divIcon({
+                    iconSize: [20, 20],
+                    tooltipAnchor: [10, 20],
+                    popupAnchor: [0, -50],
+                    className: "cssIcon",
+                    html: "<div class=\"rhomboidIcon\"></div>",
+                });
+                marker = L.marker([m.lat, m.lon], {
+                    //fillColor: "#" + m.procHash,
+                    icon: myIcon,
                     });
-                polyline = L.polyline([[my_lat, my_lon], [m.lat, m.lon]], {color: '#' + m.procHash})
-                .bindTooltip(lineTooltip);
+                polyline = L.polyline([[my_lat, my_lon], [m.lat, m.lon]], {color: '#' + m.procHash});
                 connectionFeatureGroup = L.featureGroup([marker, polyline])
                 .bindPopup(groupPopup)
+                .bindTooltip(lineTooltip)
                 .addTo(currentProcLayer);
             });
 

@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, redirect, url_for
 
 from netstat import netstat
 
@@ -7,7 +7,8 @@ app = Flask(__name__)
 
 @app.route('/')
 def index():
-    return "<a href=\"/map\">Map is here</a>"
+    return redirect(url_for('map'))
+    # return "<a href=\"/map\">Map is here</a>"
 
 
 @app.route('/map')
