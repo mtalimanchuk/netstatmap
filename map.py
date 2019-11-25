@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, after_this_request
+from flask import Flask, render_template, request, jsonify
 
 from netstat import netstat
 
