@@ -47,10 +47,6 @@ def yield_remote_connections(netstat_file=None):
                     remote_port = remote_socket.split(':')[1]
 
                     if remote_ip not in FALSE_POSITIVE_IPS and not remote_ip.startswith('['):
-                        print(line)
-                        print(filtered_chunks)
-                        print({'pid': pid, 'remoteip': remote_ip, 'remoteport': remote_port, 'pstatus': state})
-                        print('---')
                         yield {'pid': pid, 'remoteip': remote_ip, 'remoteport': remote_port, 'pstatus': state}
 
     else:
